@@ -30,7 +30,7 @@
                     <resourceShortName>                      
                         <xsl:value-of select="string(*[local-name()='resource_shortname' and namespace-uri()=''])"/>
                     </resourceShortName>
-                    <metaShareId>n/a</metaShareId>
+                    <metaShareId>NOT_DEFINED_FOR_V2</metaShareId>
                     <xsl:for-each select="*[local-name()='catalogue_item_id' and namespace-uri()='']">
                         <url>
                             <xsl:value-of select="concat('http://catalog.elra.info/product_info.php?products_id=', string(floor(number(string(.)))))"/>
@@ -215,8 +215,8 @@
             
                 <xsl:if test='$vsg!="" or $vr!="" or $vp!=""'>            	
                     <validationInfo>
-                        <xsl:if test='$vsg!=""'>
-                            <validated>true</validated>
+                        <xsl:if test='$vsg!="" or $vp!="" or $vr!=""'>
+                            <validated>True</validated>
                         </xsl:if>
                         <xsl:if test='$vsg!="" or $vp!=""'>   
                             <validationModeDetails>

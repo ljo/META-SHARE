@@ -1,10 +1,9 @@
-from django.test import TestCase
 from metashare import test_utils
-from django.contrib.auth.models import User
-from django.test.client import Client
 from metashare.settings import DJANGO_BASE, ROOT_PATH
 from metashare.repo2.models import resourceInfoType_model
 from haystack.query import SearchQuerySet
+from django.contrib.auth.models import User
+from django.test.client import Client
 
 
 class SearchIndexUpdateTests(test_utils.IndexAwareTestCase):
@@ -87,9 +86,9 @@ class SearchIndexUpdateTests(test_utils.IndexAwareTestCase):
         Asserts that the search index is empty.
         """
         self.assertEqual(SearchQuerySet().all().count(), 0,
-            "The search index is expected to be empty at the start of the " \
-            "test. There appears to be a bug in {0}." \
-            .format(test_utils.IndexAwareTestCase.__class__.__name__))
+          "The search index is expected to be empty at the start of the " \
+          "test. There appears to be a bug in {0}." \
+          .format(test_utils.IndexAwareTestCase.__class__.__name__))
     
     def init_index_with_a_resource(self):
         """
@@ -104,12 +103,11 @@ class SearchIndexUpdateTests(test_utils.IndexAwareTestCase):
         resource.storage_object.save()
         # make sure the import has automatically changed the search index
         self.assertEqual(SearchQuerySet().count(), 1,
-            "After the import of a resource the index must automatically " \
-            "have changed and contain that resource.")
+          "After the import of a resource the index must automatically " \
+          "have changed and contain that resource.")
         return resource
-
-
-class SearchTest(TestCase):
+    
+class SearchTest(test_utils.IndexAwareTestCase):
     """
     Test the search functionality
     """
@@ -119,14 +117,10 @@ class SearchTest(TestCase):
         """
         test_utils.setup_test_storage()
         _fixture = '{0}/repo2/fixtures/testfixture.xml'.format(ROOT_PATH)
-        _result = test_utils.import_xml(_fixture)
-        self.resource_id = _result[0].id
-        resource = resourceInfoType_model.objects.get(pk=self.resource_id)
-        self.resource_name = getattr(resource.identificationInfo, 'resourceName', None)
-        # set up test users with and without staff permissions.
-        # These will live in the test database only, so will not
-        # pollute the "normal" development db or the production db.
-        # As a consequence, they need no valuable password.
+        # import a single resource and save it in the DB
+        resource = test_utils.import_xml(_fixture)[0]
+        resource.storage_object.publication_status = 'p'
+        resource.storage_object.save()
         staffuser = User.objects.create_user('staffuser', 'staff@example.com',
           'secret')
         staffuser.is_staff = True
@@ -139,243 +133,79 @@ class SearchTest(TestCase):
         """
         resourceInfoType_model.objects.all().delete()
 
-    def testBrowse(self):
+    def testBrowse(self):  
         """
-        Tries to load the Browse page
+       # Tries to load the Browse page
         """
         client = Client()
         response = client.get('/{0}repo2/browse/'.format(DJANGO_BASE))
-        self.assertEqual('repo2/search2.html', response.templates[0].name)
+        self.assertEqual(response.status_code, 404)
 
-# cfedermann: if  you want to comment out larger blocks of code that may not
-# be functional at all (missing imports, methods, etc.), you can use '''...'''
-# syntax but make sure to put the following PyLint command in front of the
-# opening ''' to avoid raising unnecessary warnings.
-#
-# pylint: disable-msg=W0105
-'''
-    def testSearch(self):
-        """
-        Tries to load the Search page
-        """
+
+    def testSearch(self):        
         client = Client()
-        response = client.post('/{0}repo2/'.format(DJANGO_BASE), follow=True,
-          data={'keywords':'Appen'})
-        self.assertEqual('repo2/browse.html', response.templates[0].name)
-        self.assertContains(response, "matching your query", status_code=200)
-
-    def testLanguageFilter(self):
-        """
-        Tries to load the Search page with language filtering
-        """
+        response = client.get('/{0}repo2/search2/'.format(DJANGO_BASE), follow=True,
+          data={'q':'Italian'})
+        self.assertEqual('repo2/search.html', response.templates[0].name)
+        self.assertContains(response, "1 Language Resource", status_code=200)
+    
+       
+    def testSearchForNoResults(self):        
         client = Client()
-        response = client.post('/{0}repo2/'.format(DJANGO_BASE), follow=True,
-          data={'language':'Italian'})
-        self.assertEqual('repo2/browse.html', response.templates[0].name)
-        self.assertContains(response, "matching your query", status_code=200)
-
-    def testResourceTypeFilter(self):
-        """
-        Tries to load the Search page with language filtering
-        """
+        response = client.get('/{0}repo2/search2/'.format(DJANGO_BASE), follow=True,
+          data={'q':'querywhichwillgivenoresults'})
+        self.assertEqual('repo2/search.html', response.templates[0].name)
+        self.assertContains(response, "No results were found for search query", status_code=200)
+           
+        
+    def testLanguageFacet(self):   
         client = Client()
-        response = client.post('/{0}repo2/'.format(DJANGO_BASE), follow=True,
-          data={'resource_type':'corpus'})
-        self.assertEqual('repo2/browse.html', response.templates[0].name)
-        self.assertContains(response, "matching your query", status_code=200)
-
-    def testMediaTypeFilter(self):
-        """
-        Tries to load the Search page with language filtering
-        """
+        response = client.get('/{0}repo2/search2/'.format(DJANGO_BASE), follow=True, data={'selected_facets':'languageNameFilter_exact:Italian'})
+        self.assertEqual('repo2/search.html', response.templates[0].name)
+        self.assertContains(response, "1 Language Resource", status_code=200)
+        
+    def testLanguageFacetForNoResults(self):   
         client = Client()
-        response = client.post('/{0}repo2/'.format(DJANGO_BASE), follow=True,
-          data={'media_type':'text'})
-        self.assertEqual('repo2/browse.html', response.templates[0].name)
-        self.assertContains(response, "matching your query", status_code=200)
-
-    def testSearchWithDoubleQuotes(self):
-        """
-        Tries to load the Search page with double quotes in the search field
-        """
+        response = client.get('/{0}repo2/search2/'.format(DJANGO_BASE), follow=True, data={'selected_facets':'languageNameFilter_exact:English'})
+        self.assertEqual('repo2/search.html', response.templates[0].name)
+        self.assertContains(response, "No results were found for search query", status_code=200)
+        
+    def testResourceTypeFacet(self):   
         client = Client()
-        response = client.post('/{0}repo2/'.format(DJANGO_BASE), follow=True,
-          data={'keywords':'"Appen"'})
-        self.assertEqual('repo2/browse.html', response.templates[0].name)
-        self.assertContains(response, "matching your query", status_code=200)
-
-
-    def test_staff_user_sees_unpublished_LR(self):
+        response = client.get('/{0}repo2/search2/'.format(DJANGO_BASE), follow=True, data={'selected_facets':'resourceTypeFilter_exact:corpus'})
+        self.assertEqual('repo2/search.html', response.templates[0].name)
+        self.assertContains(response, "1 Language Resource", status_code=200)
+        
+    def testMediaTypeFacet(self):   
         client = Client()
-        client.login(username='staffuser', password='secret')
-        from metashare.repo2 import models
-        models.unpublish_LR(self.resource_id)
-        response = client.post('/{0}repo2/'.format(DJANGO_BASE), follow=True,
-          data={'keywords':self.resource_name})
-        self.assertEqual('repo2/browsee.html', response.templates[0].name)
-        self.assertContains(response, "resource matching your query", status_code=200)
-
-    def test_normal_user_doesnt_sees_unpublished_LR(self):
+        response = client.get('/{0}repo2/search2/'.format(DJANGO_BASE), follow=True, data={'selected_facets':'mediaTypeFilter_exact:audio'})
+        self.assertEqual('repo2/search.html', response.templates[0].name)
+        self.assertContains(response, "1 Language Resource", status_code=200)
+        
+    def testAvailabilityFacet(self):   
         client = Client()
-        client.login(username='normaluser', password='secret')
-        from metashare.repo2 import models
-        models.unpublish_LR(self.resource_id)
-        response = client.post('/{0}repo2/'.format(DJANGO_BASE), follow=True,
-          data={'keywords':self.resource_name})
-        self.assertEqual('repo2/browse.html', response.templates[0].name)
-        self.assertContains(response, "No results matching your query were found", status_code=200)
-
-    def test_anonymous_doesnt_sees_unpublished_LR(self):
+        response = client.get('/{0}repo2/search2/'.format(DJANGO_BASE), follow=True, 
+          data={'selected_facets':'availabilityFilter_exact:available-restrictedUse'})
+        self.assertEqual('repo2/search.html', response.templates[0].name)
+        self.assertContains(response, "1 Language Resource", status_code=200)
+        '''      
+    def testLicenceFacet(self):   
         client = Client()
-        from metashare.repo2 import models
-        models.unpublish_LR(self.resource_id)
-        response = client.post('/{0}repo2/'.format(DJANGO_BASE), follow=True,
-          data={'keywords':self.resource_name})
-        self.assertEqual('repo2/browse.html', response.templates[0].name)
-        self.assertContains(response, "No results matching your query were found", status_code=200)
-
-    def test_unpublished_LR_in_italics_for_staff_user(self):
+        response = client.get('/{0}repo2/search2/'.format(DJANGO_BASE), follow=True, data={'selected_facets':'licenceFilter_exact:ELRA_END_USER'})
+        self.assertEqual('repo2/search.html', response.templates[0].name)
+        self.assertContains(response, "1 Language Resource", status_code=200)
+        
+    def testLicenceFacetForTwoLicences(self):   
         client = Client()
-        client.login(username='staffuser', password='secret')
-        from metashare.repo2 import models
-        models.unpublish_LR(self.resource_id)
-        response = client.post('/{0}repo2/'.format(DJANGO_BASE), follow=True,
-          data={'keywords':self.resource_name})
-        self.assertEqual('repo2/browse.html', response.templates[0].name)
-        self.assertContains(response, "resource matching your query", status_code=200)
-        self.assertContains(response, "<i>")
+        response = client.get('/{0}repo2/search2/'.format(DJANGO_BASE), follow=True, 
+          data={'selected_facets':'licenceFilter_exact:ELRA_END_USER', 'selected_facets':'licenceFilter_exact:ELRA_EVALUATION'})
+        self.assertEqual('repo2/search.html', response.templates[0].name)
+        self.assertContains(response, "1 Language Resource", status_code=200)
 
-class AdvancedSearchTest(django.test.TestCase):
-    """
-    Test the advanced functionality
-    """
-    def setUp(self):
-        """
-        Set up the advanced functionality
-        """
-        test_utils.setup_test_storage()
-        _fixture = '{0}/repo2/fixtures/testfixture.xml'.format(ROOT_PATH)
-        self.resource_id = test_utils.import_xml(_fixture)
-        resource = resourceInfoType_model.objects.get(pk=self.resource_id)
-        self.resource_name = getattr(resource.identificationInfo, 'resourceName', None)
-        # set up test users with and without staff permissions.
-        # These will live in the test database only, so will not
-        # pollute the "normal" development db or the production db.
-        # As a consequence, they need no valuable password.
-        staffuser = User.objects.create_user('staffuser', 'staff@example.com',
-          'secret')
-        staffuser.is_staff = True
-        staffuser.save()
-        User.objects.create_user('normaluser', 'normal@example.com', 'secret')
-
-    def tearDown(self):
-        """
-        Clean up the test
-        """
-        resourceInfoType_model.objects.all().delete()
-
-    def testAdvancedSearch(self):
-        """
-        Tries to load the Search page
-        """
+    def testRestrictionsOfUseFacet(self):   
         client = Client()
-        response = client.post('/{0}search/'.format(DJANGO_BASE), follow=True,
-          data={'Resourcename':'"Appen"'})
-        self.assertEqual('repo2/browse.html', response.templates[0].name)
-        self.assertContains(response, "matching your query", status_code=200)
-
-    def test_staff_user_sees_unpublished_LR(self):
-        client = Client()
-        client.login(username='staffuser', password='secret')
-        from metashare.repo2 import models
-        models.unpublish_LR(self.resource_id)
-        response = client.post('/{0}repo2/'.format(DJANGO_BASE), follow=True,
-          data={'keywords':self.resource_name})
-        self.assertEqual('repo2/browse.html', response.templates[0].name)
-        self.assertContains(response, "resource matching your query", status_code=200)
-
-    def test_normal_user_doesnt_sees_unpublished_LR(self):
-        client = Client()
-        client.login(username='normaluser', password='secret')
-        from metashare.repo2 import models
-        models.unpublish_LR(self.resource_id)
-        response = client.post('/{0}repo2/'.format(DJANGO_BASE), follow=True,
-          data={'keywords':self.resource_name})
-        self.assertEqual('repo2/browse.html', response.templates[0].name)
-        self.assertContains(response, "No results matching your query were found", status_code=200)
-
-    def test_anonymous_doesnt_sees_unpublished_LR(self):
-        client = Client()
-        from metashare.repo2 import models
-        models.unpublish_LR(self.resource_id)
-        response = client.post('/{0}repo2/'.format(DJANGO_BASE), follow=True,
-          data={'keywords':self.resource_name})
-        self.assertEqual('repo2/browse.html', response.templates[0].name)
-        self.assertContains(response, "No results matching your query were found", status_code=200)
-
-    def test_unpublished_LR_in_italics_for_staff_user(self):
-        client = Client()
-        client.login(username='staffuser', password='secret')
-        from metashare.repo2 import models
-        models.unpublish_LR(self.resource_id)
-        response = client.post('/{0}repo2/'.format(DJANGO_BASE), follow=True,
-          data={'keywords':self.resource_name})
-        self.assertEqual('repo2/browse.html', response.templates[0].name)
-        self.assertContains(response, "resource matching your query", status_code=200)
-        self.assertContains(response, "<i>")
-
-class UnpublishedLRTest(django.test.TestCase):
-    """
-    Test the unpublished page for staff user
-    """
-    def setUp(self):
-        """
-        Set up the unpublished page for staff user
-        """
-        test_utils.setup_test_storage()
-        _fixture = '{0}/repo2/fixtures/testfixture.xml'.format(ROOT_PATH)
-        self.resource_id = test_utils.import_xml(_fixture)
-        resource = resourceInfoType_model.objects.get(pk=self.resource_id)
-        self.resource_name = getattr(resource.identificationInfo, 'resourceName', None)
-        # set up test users with and without staff permissions.
-        # These will live in the test database only, so will not
-        # pollute the "normal" development db or the production db.
-        # As a consequence, they need no valuable password.
-        staffuser = User.objects.create_user('staffuser', 'staff@example.com',
-          'secret')
-        staffuser.is_staff = True
-        staffuser.save()
-        User.objects.create_user('normaluser', 'normal@example.com', 'secret')
-
-    def tearDown(self):
-        """
-        Clean up the test
-        """
-        resourceInfoType_model.objects.all().delete()
-
-    def test_staff_user_sees_unpublished_LR(self):
-        client = Client()
-        client.login(username='staffuser', password='secret')
-        from metashare.repo2 import models
-        models.unpublish_LR(self.resource_id)
-        response = client.post('/{0}repo2/unpublished/True'.format(DJANGO_BASE), follow=True)
-        self.assertEqual('repo2/browse.html', response.templates[0].name)
-        self.assertContains(response, "resource matching your query", status_code=200)
-
-    def test_normal_user_doesnt_sees_unpublished_LR(self):
-        client = Client()
-        client.login(username='normaluser', password='secret')
-        from metashare.repo2 import models
-        models.unpublish_LR(self.resource_id)
-        response = client.post('/{0}repo2/unpublished/True'.format(DJANGO_BASE), follow=True)
-        self.assertEqual('repo2/browse.html', response.templates[0].name)
-        self.assertContains(response, "No results matching your query were found", status_code=200)
-
-    def test_anonymous_doesnt_sees_unpublished_LR(self):
-        client = Client()
-        from metashare.repo2 import models
-        models.unpublish_LR(self.resource_id)
-        response = client.post('/{0}repo2/unpublished/True'.format(DJANGO_BASE), follow=True)
-        self.assertEqual('repo2/browse.html', response.templates[0].name)
-        self.assertContains(response, "No results matching your query were found", status_code=200)
-'''
+        response = client.get('/{0}repo2/search2/'.format(DJANGO_BASE), follow=True, 
+          data={'selected_facets':'restrictionsOfUseFilter_exact:academic-nonCommercialUse'})
+        self.assertEqual('repo2/search.html', response.templates[0].name)
+        self.assertContains(response, "1 Language Resource", status_code=200)
+        '''

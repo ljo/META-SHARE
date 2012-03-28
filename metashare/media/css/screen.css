@@ -503,6 +503,32 @@ div.filter_box{
     float: left;
 }
 
+a.addableFacet:before {
+    content: " " url(sexybuttons/images/icons/silk/bullet_plus.png);
+    vertical-align: top;
+}
+
+a.removableFacet:before {
+    content: " " url(sexybuttons/images/icons/silk/bullet_minus.png);
+    vertical-align: top;
+}
+
+#licence_sel_form > ul {
+    list-style:none outside;
+}
+
+#licence_sel_form > ul > li {
+    margin: .5em 0;
+}
+
+#licence_sel_form > ul > li > div + div {
+    margin-left: 2em;
+}
+
+#licence_sel_form > ul > li > div + div p, #licence_sel_form > ul > li > div + div ul {
+    margin: 0;
+}
+
 
 a.sexybutton{
 	text-align: center;
@@ -566,6 +592,19 @@ table.result_table tr.result_table_head{
 	background-image: url(../images/table_bg.png);
 	background-repeat: repeat-x;
 }
+
+table.result_table tr.result_table_head a.sortAsc:after {
+    content: " " url(sexybuttons/images/icons/silk/bullet_arrow_up.png);
+    vertical-align: top;
+}
+
+table.result_table tr.result_table_head a.sortDesc:after {
+    content: " " url(sexybuttons/images/icons/silk/bullet_arrow_down.png);
+    vertical-align: top;
+}
+
+
+
 table.result_table td, th{
 	padding-left: 30px;
 	vertical-align:top;
