@@ -7,6 +7,7 @@ from django import template
 from metashare.repository.models import corpusInfoType_model, \
     toolServiceInfoType_model, lexicalConceptualResourceInfoType_model, \
     languageDescriptionInfoType_model
+from metashare.settings import MEDIA_URL
 
 register = template.Library()
 
@@ -85,10 +86,27 @@ class ResourceMediaTypes(template.Node):
 
         result = list(set(result))
         result.sort()
-        
-        media_list = ", ".join(result)
-        
-        return media_list
+
+        # use images instead of plain text when displaying media types
+        image_tag = ""
+        if "text" in result:
+            image_tag = '<img src="{}css/sexybuttons/images/icons/silk/page' \
+              '_white_text_media_type.png" title="text" /> &nbsp;' \
+              .format(MEDIA_URL)
+        if "audio" in result:
+            image_tag = image_tag + ' <img src="{}css/sexybuttons/images/' \
+              'icons/silk/sound_none.png" title="audio" /> &nbsp; ' \
+              .format(MEDIA_URL)
+        if "image" in result:
+            image_tag = image_tag + ' <img src="{}css/sexybuttons/images/' \
+              'icons/silk/picture.png" title="image" /> &nbsp; ' \
+              .format(MEDIA_URL)
+        if "video" in result:
+            image_tag = image_tag + ' <img src="{}css/sexybuttons/images/' \
+              'icons/silk/film.png" title="video" />' \
+              .format(MEDIA_URL)
+
+        return image_tag
 
 def resource_media_types(parser, token):
     """

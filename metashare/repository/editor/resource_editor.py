@@ -5,7 +5,8 @@ from metashare.repository.models import resourceComponentTypeType_model, \
     corpusInfoType_model, languageDescriptionInfoType_model, \
     lexicalConceptualResourceInfoType_model, toolServiceInfoType_model, \
     corpusMediaTypeType_model, languageDescriptionMediaTypeType_model, \
-    lexicalConceptualResourceMediaTypeType_model, resourceInfoType_model
+    lexicalConceptualResourceMediaTypeType_model, resourceInfoType_model, \
+    metadataInfoType_model
 from metashare.storage.models import PUBLISHED, INGESTED, INTERNAL, \
     ALLOWED_ARCHIVE_EXTENSIONS
 from metashare.utils import verify_subclass
@@ -204,16 +205,80 @@ def ingest_resources(modeladmin, request, queryset):
 ingest_resources.short_description = "Ingest selected internal resources"
 
 
+from selectable.base import LookupBase, ModelLookup
+from selectable.registry import registry
+from selectable.forms.widgets import AutoCompleteSelectMultipleWidget
+from metashare.repository.models import personInfoType_model
 
+class PersonLookup(ModelLookup):
+    model = personInfoType_model
+    search_fields = ('surname__contains', )
+    filters = {}
+    
+    def get_query(self, request, term):
+        #results = super(PersonLookup, self).get_query(request, term)
+        # Since MultiTextFields cannot be searched using query sets (they are base64-encoded and pickled),
+        # we must do the searching by hand.
+        # TODO: this is excessively slow, replace with more appropriate search mechanism, e.g. a SOLR index
+        lcterm = term.lower()
+        def matches(person):
+            'Helper function to group the search code for a person'
+            for multifield in (person.surname, person.givenName):
+                for field in multifield:
+                    if lcterm in field.lower():
+                        return True
+            return False
+        persons = self.get_queryset()
+        if term == '*':
+            results = persons
+        else:
+            results = [p for p in persons if matches(p)]
+        if results is not None:
+            print u'{} results'.format(results.__len__())
+        else:
+            print u'No results'
+        return results
+    
+    def get_item_label(self, item):
+        return unicode(item)
+#        name_flat = ' '.join(item.givenName)
+#        surname_flat = ' '.join(item.surname)
+#        return u'%s %s' % (name_flat, surname_flat)
+    
+    def get_item_id(self, item):
+        return item.id
+
+class ValidationReportLookup(LookupBase):
+    pass
+
+registry.register(PersonLookup)
+registry.register(ValidationReportLookup)
+
+from django import forms
+
+class MetadataForm(forms.ModelForm):
+    class Meta:
+        model = metadataInfoType_model
+        widgets = {'metadataCreator' : AutoCompleteSelectMultipleWidget(lookup_class=PersonLookup)}
+
+class MetadataInline(ReverseInlineModelAdmin):
+    form = MetadataForm
+            
+class ResourceForm(forms.ModelForm):
+    class Meta:
+        model = resourceInfoType_model
+        widgets = {'contactPerson' : AutoCompleteSelectMultipleWidget(lookup_class=PersonLookup)}
 
 class ResourceModelAdmin(SchemaModelAdmin):
+    form = ResourceForm
     inline_type = 'stacked'
     custom_one2one_inlines = {'identificationInfo':IdentificationInline,
-                              'resourceComponentType':ResourceComponentInline}
+                              'resourceComponentType':ResourceComponentInline,
+                              'metadataInfo':MetadataInline}
     content_fields = ('resourceComponentType',)
     list_display = ('__unicode__', 'resource_type', 'publication_status')
     actions = (publish_resources, unpublish_resources, ingest_resources, )
-    no_inlines = ['distributionInfo', ]
+    hidden_fields = ('storage_object',)
 
 
     def get_urls(self):
@@ -356,15 +421,32 @@ class ResourceModelAdmin(SchemaModelAdmin):
           context_instance)
 
 
-    def build_fieldsets_from_schema(self, include_inlines=False):
+    def build_fieldsets_from_schema(self, include_inlines=False, inlines=()):
         """
         Builds fieldsets using SchemaModel.get_fields().
         """
         # pylint: disable-msg=E1101
         verify_subclass(self.model, SchemaModel)
 
-        exclusion_list = getattr(self, 'exclude', None)
-        exclusion_list = exclusion_list or ()
+        exclusion_list = ()
+        if hasattr(self, 'exclude') and self.exclude is not None:
+            exclusion_list += tuple(self.exclude)
+
+        _hidden_fields = getattr(self, 'hidden_fields', None)
+        # hidden fields are also excluded
+        if _hidden_fields:
+            for _hidden_field in _hidden_fields:
+                if _hidden_field not in exclusion_list:
+                    exclusion_list += (_hidden_field, )
+
+        _readonly_fields = getattr(self, 'readonly_fields', None)
+        # readonly fields are also excluded
+        if _readonly_fields:
+            for _readonly_field in _readonly_fields:
+                if _readonly_field not in exclusion_list:
+                    exclusion_list += (_readonly_field, )
+
+
 
         _fieldsets = []
         _content_fieldsets = []
@@ -380,17 +462,11 @@ class ResourceModelAdmin(SchemaModelAdmin):
             _visible_content_fields_verbose_names = []
 
             for _field_name in _fields[_field_status]:
-                # Two possible reasons why a field might be encoded as an inline:
-                # - either it's a OneToOneField and we have put 
-                #   it into tht eexclusion list;
-                # - or it's a reverse foreigh key, so it is not a field.
-                # In both cases, we only include it in visible fields if
-                # include_inlines is requested.
                 _is_visible = False
-                if self.is_field(_field_name) and _field_name not in exclusion_list:
+                if self.is_visible_as_normal_field(_field_name, exclusion_list):
                     _is_visible = True
                     _fieldname_to_append = _field_name
-                elif include_inlines:
+                elif self.is_visible_as_inline(_field_name, include_inlines, inlines):
                     _is_visible = True
                     _fieldname_to_append = encode_as_inline(_field_name)
 
@@ -419,6 +495,9 @@ class ResourceModelAdmin(SchemaModelAdmin):
                 _content_fieldsets.append((_caption, _fieldset))
         
         _fieldsets += _content_fieldsets
+
+        if _hidden_fields:
+            _fieldsets.append((None, {'fields': _hidden_fields, 'classes':('display_none', )}))
 
         return _fieldsets
 

@@ -16,6 +16,7 @@ TESTFIXTURE_XML = '{}/repository/fixtures/testfixture.xml'.format(ROOT_PATH)
 BROKENFIXTURE_XML = '{}/repository/fixtures/broken.xml'.format(ROOT_PATH)
 TESTFIXTURES_ZIP = '{}/repository/fixtures/tworesources.zip'.format(ROOT_PATH)
 BROKENFIXTURES_ZIP = '{}/repository/fixtures/onegood_onebroken.zip'.format(ROOT_PATH)
+LEX_CONC_RES_XML = '{}/repository/test_fixtures/published-lexConcept-Text-FreEngGer.xml'.format(ROOT_PATH)
 
 class EditorTest(TestCase):
     """
@@ -82,9 +83,9 @@ class EditorTest(TestCase):
                 .format(user_credentials, response)
         return client
 
-    def import_test_resource(self):
+    def import_test_resource(self, path=TESTFIXTURE_XML):
         test_utils.setup_test_storage()
-        result = test_utils.import_xml(TESTFIXTURE_XML)
+        result = test_utils.import_xml(path)
         resource = result[0]
         return resource
 
@@ -228,18 +229,68 @@ class EditorTest(TestCase):
         self.assertContains(response, "Resource name:", msg_prefix='Identification is not shown inline')
         
     def test_one2one_distribution_is_hidden(self):
+        """
+        Asserts that a required OneToOneField referring to models that "contain"
+        one2many fields is hidden, i.e., the model is edited in a popup/overlay.
+        """
         client = self.client_with_user_logged_in(self.editor_login)
         resource = self.import_test_resource()
-        response = client.get('{}repository/resourceinfotype_model/{}/'.format(ADMINROOT, resource.id))
+        response = client.get('{}repository/resourceinfotype_model/{}/'
+                              .format(ADMINROOT, resource.id))
         self.assertContains(response, 'type="hidden" id="id_distributionInfo"',
-                            msg_prefix='One-to-one field "distributionInfo" should have been hidden')
+                            msg_prefix='Required One-to-one field ' \
+                                'distributionInfo" should have been hidden.')
 
     def test_one2one_distribution_uses_related_widget(self):
+        """
+        Asserts that a required OneToOneField referring to models that "contain"
+        one2many fields is edited in a popup/overlay.
+        """
         client = self.client_with_user_logged_in(self.editor_login)
         resource = self.import_test_resource()
-        response = client.get('{}repository/resourceinfotype_model/{}/'.format(ADMINROOT, resource.id))
-        self.assertContains(response, 'related-widget-wrapper-change-link" id="edit_id_distributionInfo"',
-                             msg_prefix='One-to-one field "distributionInfo" not rendered using related widget')
+        response = client.get('{}repository/resourceinfotype_model/{}/' \
+                              .format(ADMINROOT, resource.id))
+        self.assertContains(response, 'related-widget-wrapper-change-link" ' \
+                                'id="edit_id_distributionInfo"',
+                msg_prefix='Required One-to-one field ' \
+                    '"distributionInfo" not rendered using related widget.')
+        
+    def test_one2one_usage_is_hidden(self):
+        """
+        Asserts that a recommended OneToOneField referring to models that
+        "contain" one2many fields is hidden, i.e., the model is edited in a
+        popup/overlay.
+        """
+        client = self.client_with_user_logged_in(self.editor_login)
+        resource = self.import_test_resource()
+        response = client.get('{}repository/resourceinfotype_model/{}/' \
+                              .format(ADMINROOT, resource.id))
+        self.assertContains(response, 'type="hidden" id="id_usageInfo"',
+                            msg_prefix='Recommended One-to-one field ' \
+                                '"usageInfo" should have been hidden.')
+
+    def test_one2one_usage_uses_related_widget(self):
+        """
+        Asserts that a recommended OneToOneField referring to models that
+        "contain" one2many fields is edited in a popup/overlay.
+        """
+        client = self.client_with_user_logged_in(self.editor_login)
+        resource = self.import_test_resource()
+        response = client.get('{}repository/resourceinfotype_model/{}/' \
+                              .format(ADMINROOT, resource.id))
+        self.assertContains(response, 'related-widget-wrapper-change-link" ' \
+                                'id="edit_id_usageInfo"',
+                msg_prefix='Recommended One-to-one field "usageInfo" not ' \
+                    'rendered using related widget, although it contains ' \
+                    'a One-to-Many field.')
+
+    def test_licenceinfo_inline_is_present(self):
+        client = self.client_with_user_logged_in(self.editor_login)
+        resource = self.import_test_resource()
+        response = client.get('{}repository/distributioninfotype_model/{}/'.format(ADMINROOT, resource.distributionInfo.id))
+        self.assertContains(response, '<div class="inline-group" id="licenceinfotype_model_set-group">',
+                            msg_prefix='expected licence info inline')
+        
 
     def test_one2one_sizepervalidation_is_hidden(self):
         client = self.client_with_user_logged_in(self.editor_login)
@@ -265,6 +316,21 @@ class EditorTest(TestCase):
         self.assertContains(response, 'type="hidden" name="back_to_corpusmediatypetype_model"',
                             msg_prefix='Back reference should have been hidden')
 
+    def test_linguality_inline_is_present(self):
+        client = self.client_with_user_logged_in(self.editor_login)
+        resource = self.import_test_resource()
+        corpustextinfo = resource.resourceComponentType.corpusMediaType.corpustextinfotype_model_set.all()[0]
+        response = client.get('{}repository/corpustextinfotype_model/{}/'.format(ADMINROOT, corpustextinfo.id))
+        self.assertContains(response, '<div class="form-row lingualityType">',
+                            msg_prefix='expected linguality inline')
+
+    def test_hidden_field_is_not_referenced_in_fieldset_label(self):
+        client = self.client_with_user_logged_in(self.editor_login)
+        resource = self.import_test_resource(LEX_CONC_RES_XML)
+        response = client.get('{}repository/lexicalconceptualresourceinfotype_model/{}/'.format(ADMINROOT, resource.resourceComponentType.id))
+        self.assertNotContains(response, ' Lexical conceptual resource media</',
+                               msg_prefix='Hidden fields must not be visible in fieldset labels.')
+
     def test_validator_is_multiwidget(self):
         client = self.client_with_user_logged_in(self.editor_login)
         resource = self.import_test_resource()
@@ -281,3 +347,10 @@ class EditorTest(TestCase):
         client = self.client_with_user_logged_in(self.editor_login)
         response = client.get(ADMINROOT+'repository/resourceinfotype_model/my/')
         self.assertContains(response, 'Resources')
+
+    def test_storage_object_is_hidden(self):
+        client = self.client_with_user_logged_in(self.editor_login)
+        resource = self.import_test_resource()
+        response = client.get('{}repository/resourceinfotype_model/{}/'.format(ADMINROOT, resource.id))
+        self.assertContains(response, 'type="hidden" name="storage_object"',
+                            msg_prefix='Expected a hidden storage object')

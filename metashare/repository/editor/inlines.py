@@ -21,7 +21,8 @@ class SchemaModelInline(admin.StackedInline, RelatedAdminMixin, SchemaModelLooku
         super(SchemaModelInline, self).__init__(parent_model, admin_site)
         if self.collapse:
             self.verbose_name_plural = '_{}'.format(force_unicode(self.verbose_name_plural))
-        self.filter_horizontal = self.model.get_many_to_many_fields()
+        # Show m2m fields as horizontal filter widget unless they have a custom widget:
+        self.filter_horizontal = self.list_m2m_fields_without_custom_widget(self.model)
 
     def get_fieldsets(self, request, obj=None):
         return SchemaModelLookup.get_fieldsets(self, request, obj)
@@ -58,17 +59,21 @@ class ReverseInlineFormSet(BaseModelFormSet):
                  prefix = None,
                  save_as_new = False,
                  queryset=None):
+        _qs = None
         if instance.pk:
             obj = getattr(instance, self.parent_fk_name)
-            _qs = self.model.objects.filter(pk = obj.id)
-        else:
+            if obj:
+                _qs = self.model.objects.filter(pk = obj.id)
+        if not _qs:
             _qs = self.model.objects.filter(pk = -1)
             self.extra = 1
         super(ReverseInlineFormSet, self).__init__(data, files,
                                                        prefix = prefix,
                                                        queryset = _qs)
         for form in self.forms:
-            form.empty_permitted = False
+            # if the form set can be deleted, then it is not required and then
+            # its forms may be empty
+            form.empty_permitted = getattr(self, 'can_delete', False)
 
 
 def reverse_inlineformset_factory(parent_model,
@@ -84,7 +89,8 @@ def reverse_inlineformset_factory(parent_model,
         'formfield_callback': formfield_callback,
         'formset': formset,
         'extra': 0,
-        'can_delete': False,
+        'can_delete': parent_fk_name not in \
+            parent_model.get_fields()['required'],
         'can_order': False,
         'fields': fields,
         'exclude': exclude,
